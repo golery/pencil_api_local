@@ -45,21 +45,17 @@ bun run build
 
 ## Release
 
-Version lives in `package.json`. Pushing a matching `v*` tag builds binaries for Linux, macOS, and Windows and attaches them to a GitHub release.
-
-```bash
-# edit "version" in package.json, commit, then:
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-To build every platform locally without publishing:
+Version lives in `package.json`.
 
 ```bash
 ./scripts/release.sh
 ```
 
-Artifacts land in `dist/` (`pencil-api-local-<version>-<os>-<arch>`, plus `SHA256SUMS`). `./scripts/release.sh --publish` uploads them when the current commit is already tagged `v<version>`.
+Artifacts land in `dist/` (`pencil-api-local-<version>-<os>-<arch>`, plus `SHA256SUMS`).
+
+## Publish
+
+`./scripts/publish.sh` builds those binaries, copies them to `/home/hly/repos/releases/pencil_api_local`, then commits and pushes that repo (`golery/releases`). Binaries are stored with Git LFS because GitHub rejects files over 100MB. `git-lfs` must be on `PATH` (or in `~/.local/bin`).
 
 ## Smoke test
 
