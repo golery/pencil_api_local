@@ -67,6 +67,10 @@ for building the binary files and commit to /releases folder
 
 `./scripts/publish.sh` builds a binary for the machine you are on, under `dist/`. The release workflow runs the same script on Ubuntu and macOS.
 
+## License
+
+Copyright (c) 2026 Golery Inc. All rights reserved. You may clone, read, and build the original source. You may not modify it and build, and you may not redistribute it. See [LICENSE](LICENSE).
+
 ## Smoke test
 
 ```bash

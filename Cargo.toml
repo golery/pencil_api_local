@@ -3,6 +3,7 @@ name = "pencil_api_local"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license-file = "LICENSE"
 
 [[bin]]
 name = "pencil-api-local"
