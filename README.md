@@ -58,7 +58,10 @@ Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is 
 
 ## Release
 
-Version lives in `Cargo.toml`. `./scripts/release.sh` merges the current branch into `main` in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds `linux-x64` on Ubuntu and `darwin-arm64` on macOS, then commits `releases/pencil-api-local-<version>-<os>-<arch>` and `releases/SHA256SUMS` back to `main`.
+TLDR: Just run `./scripts/release.sh`.
+This will merge current branch to main brach and trigger the github action
+for building the binary files and commit to /releases folder
+[`.github/workflows/release.yml`](.github/workflows/release.yml)
 
 ## Publish
 
