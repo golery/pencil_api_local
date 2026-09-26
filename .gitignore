@@ -1,5 +1,6 @@
-data/
+!data/books.json
 node_modules/
+/target
 .env
 dist/
 *.log

@@ -1,21 +1,24 @@
 # pencil_api_local
 
-Local vault-backed API for pencil_web. Runs on the user's laptop and serves registered markdown folders as Pencil books. Cloud books stay on goapi; the browser talks to this API directly at `http://127.0.0.1:8300`.
+Local vault-backed API for pencil_web. Runs on the user's laptop and serves registered markdown folders as Pencil books. Cloud books stay on goapi; the browser talks to this API directly at `http://127.0.0.1:8558`.
 
 ## Setup
 
+Install Rust (https://rustup.rs), then:
+
 ```bash
-bun install
 cp .env.example .env
-bun run dev
+cargo run
 ```
+
+From pencil_web, `npm run local-api:dev` starts this server.
 
 ## Endpoints
 
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/health` | Liveness |
-| GET | `/api/pencil/book` | Linked books from `data/books.json` |
+| GET | `/api/pencil/book` | Linked books from the config file |
 | POST | `/api/pencil/book` | Body `{ name, path }` — link a folder |
 | PATCH | `/api/pencil/book/:id` | Rename display name |
 | DELETE | `/api/pencil/book/:id` | Unlink (files kept) |
@@ -25,48 +28,48 @@ bun run dev
 
 Node write mutations return `501`.
 
-## CORS
+## Binding
+
+Listens on `127.0.0.1` and port `8558` (`PORT` or `--port`). The operating system then refuses connections from other machines.
+
+`HOST` or `--host <addr>` opts in to another address, for example `--host 192.168.1.10` when testing from a phone. Use the address that device sends in the `Host` header. A request is rejected with `403` unless `Host` is `127.0.0.1:<port>`, `localhost:<port>`, or `<that address>:<port>`. That check blocks DNS rebinding.
+
+## CORS and browser requests
 
 Allows `https://pencil.golery.com` and local Next (`http://localhost:3000`, `http://127.0.0.1:3000`). Add more via `CORS_ORIGINS`. Includes `Access-Control-Allow-Private-Network: true`.
+
+A request that sends `Origin` must use one of those origins, or the server returns `403`. Clients that omit `Origin`, such as `curl`, are allowed. A request with a body must use `Content-Type: application/json`; anything else returns `415`, so a page cannot post a plain-text body without a preflight.
 
 Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoid HTTPS→HTTP mixed content.
 
 ## Standalone CLI
 
-`bun run build` compiles a single binary for this machine. It does not need Bun installed to run:
-
-```bash
-bun run build
-./dist/pencil-api-local
-./dist/pencil-api-local --port 8300 --books-file ./data/books.json
-```
-
-`./dist/pencil-api-local --help` lists flags. `PORT`, `BOOKS_FILE`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
-
-## Release
-
-Version lives in `package.json`. Pushing a matching `v*` tag builds binaries for Linux, macOS, and Windows and attaches them to a GitHub release.
-
-```bash
-# edit "version" in package.json, commit, then:
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-To build every platform locally without publishing:
+`./scripts/release.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
 
 ```bash
 ./scripts/release.sh
+./dist/pencil-api-local
+./dist/pencil-api-local --port 8558
 ```
 
-Artifacts land in `dist/` (`pencil-api-local-<version>-<os>-<arch>`, plus `SHA256SUMS`). `./scripts/release.sh --publish` uploads them when the current commit is already tagged `v<version>`.
+`./dist/pencil-api-local --help` lists flags. `PORT`, `HOST`, `PENCIL_CONFIG`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
+
+Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is unset. The file looks like `{ "books": [] }`. On startup the server prints the config path. If the file is missing, it asks for the folder of the first book and creates the file.
+
+## Release
+
+Version lives in `Cargo.toml`. `./scripts/release.sh` writes `dist/pencil-api-local-<version>-<os>-<arch>` and `dist/SHA256SUMS`.
+
+## Publish
+
+`./scripts/publish.sh` builds that binary, copies it to `/home/hly/repos/releases/pencil_api_local`, then commits and pushes `golery/releases`. `git-lfs` must be on `PATH` (or in `~/.local/bin`) because that repo stores the binaries with Git LFS.
 
 ## Smoke test
 
 ```bash
-bun run start
-curl -X POST http://localhost:8300/api/pencil/book \
+cargo run
+curl -X POST http://localhost:8558/api/pencil/book \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Personal","path":"./fixtures/vault/Personal"}'
-curl http://localhost:8300/api/pencil/book
+  -d '{"name":"Personal","path":"./data/books/Personal"}'
+curl http://localhost:8558/api/pencil/book
 ```
