@@ -1,62 +1,60 @@
 #!/usr/bin/env bash
-# Build standalone binaries, copy them into the releases repo, then commit and push.
-#   ./scripts/publish.sh
-# Override the checkout with RELEASES_REPO=/path/to/releases
+# Build a stripped release binary for this machine into dist/.
+# A push to main commits these binaries into releases/ via GitHub Actions.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export PATH="${HOME}/.local/bin:${PATH}"
-
-RELEASES_REPO="${RELEASES_REPO:-/home/hly/repos/releases}"
-NAME="pencil-api-local"
-
-if [[ ! -d "${RELEASES_REPO}/.git" ]]; then
-  echo "Releases repo not found: ${RELEASES_REPO}" >&2
+if [[ -n "${1:-}" ]]; then
+  echo "Unknown argument: $1" >&2
+  echo "Usage: ./scripts/publish.sh" >&2
   exit 1
 fi
 
-if ! command -v git-lfs >/dev/null 2>&1; then
-  echo "git-lfs is required. The releases repo stores these binaries with Git LFS." >&2
-  exit 1
+if [[ -f "${HOME}/.cargo/env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.cargo/env"
 fi
-
-./scripts/release.sh
 
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-DEST="${RELEASES_REPO}/pencil_api_local"
-mkdir -p "${DEST}"
+NAME="pencil-api-local"
+HOST="$(rustc -vV | awk '/^host:/{print $2}')"
 
-shopt -s nullglob
-artifacts=(dist/${NAME}-${VERSION}-*)
-shopt -u nullglob
-if [[ ${#artifacts[@]} -eq 0 ]]; then
-  echo "No release artifacts found for ${NAME} ${VERSION}" >&2
-  exit 1
+case "${HOST}" in
+  x86_64-unknown-linux-gnu) platform="linux-x64" ;;
+  x86_64-unknown-linux-musl) platform="linux-x64-musl" ;;
+  aarch64-unknown-linux-gnu) platform="linux-arm64" ;;
+  aarch64-unknown-linux-musl) platform="linux-arm64-musl" ;;
+  x86_64-apple-darwin) platform="darwin-x64" ;;
+  aarch64-apple-darwin) platform="darwin-arm64" ;;
+  x86_64-pc-windows-msvc | x86_64-pc-windows-gnu) platform="windows-x64" ;;
+  aarch64-pc-windows-msvc) platform="windows-arm64" ;;
+  *) platform="${HOST}" ;;
+esac
+
+echo "Building ${NAME} ${VERSION} for ${platform}"
+cargo build --release
+
+mkdir -p dist
+rm -f dist/${NAME} dist/${NAME}-* dist/SHA256SUMS
+
+binary="target/release/${NAME}"
+if [[ "${platform}" == windows-* ]]; then
+  binary="${binary}.exe"
 fi
 
-cp -a "${artifacts[@]}" dist/SHA256SUMS "${DEST}/"
-
-attr="${RELEASES_REPO}/.gitattributes"
-lfs_line="pencil_api_local/${NAME}-* filter=lfs diff=lfs merge=lfs -text"
-if [[ ! -f "${attr}" ]] || ! grep -qxF "${lfs_line}" "${attr}"; then
-  echo "${lfs_line}" >> "${attr}"
+outfile="dist/${NAME}-${VERSION}-${platform}"
+if [[ "${platform}" == windows-* ]]; then
+  outfile="${outfile}.exe"
 fi
 
-cd "${RELEASES_REPO}"
-git lfs install --local >/dev/null
-git add .gitattributes pencil_api_local
+cp -a "${binary}" "${outfile}"
+cp -a "${binary}" "dist/${NAME}"
 
-if git diff --cached --quiet; then
-  echo "Releases repo already contains ${NAME} ${VERSION}"
-  exit 0
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd dist && sha256sum "${outfile#dist/}" > SHA256SUMS)
+else
+  (cd dist && shasum -a 256 "${outfile#dist/}" > SHA256SUMS)
 fi
 
-git commit -m "$(cat <<EOF
-Publish ${NAME} ${VERSION}.
-
-EOF
-)"
-
-git push -u origin HEAD
-echo "Pushed ${NAME} ${VERSION} to ${RELEASES_REPO}"
+echo "Built ${outfile}"

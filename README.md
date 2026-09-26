@@ -44,10 +44,10 @@ Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoi
 
 ## Standalone CLI
 
-`./scripts/release.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
+`./scripts/publish.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
 
 ```bash
-./scripts/release.sh
+./scripts/publish.sh
 ./dist/pencil-api-local
 ./dist/pencil-api-local --port 8558
 ```
@@ -58,11 +58,11 @@ Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is 
 
 ## Release
 
-Version lives in `Cargo.toml`. `./scripts/release.sh` writes `dist/pencil-api-local-<version>-<os>-<arch>` and `dist/SHA256SUMS`.
+Version lives in `Cargo.toml`. `./scripts/release.sh` merges the current branch into `main` in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds `linux-x64` on Ubuntu and `darwin-arm64` on macOS, then commits `releases/pencil-api-local-<version>-<os>-<arch>` and `releases/SHA256SUMS` back to `main`.
 
 ## Publish
 
-`./scripts/publish.sh` builds that binary, copies it to `/home/hly/repos/releases/pencil_api_local`, then commits and pushes `golery/releases`. `git-lfs` must be on `PATH` (or in `~/.local/bin`) because that repo stores the binaries with Git LFS.
+`./scripts/publish.sh` builds a binary for the machine you are on, under `dist/`. The release workflow runs the same script on Ubuntu and macOS.
 
 ## Smoke test
 
