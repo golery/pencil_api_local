@@ -17,13 +17,13 @@ if [[ ! -d "${RELEASES_REPO}/.git" ]]; then
 fi
 
 if ! command -v git-lfs >/dev/null 2>&1; then
-  echo "git-lfs is required. Binaries over 100MB cannot be pushed to GitHub without it." >&2
+  echo "git-lfs is required. The releases repo stores these binaries with Git LFS." >&2
   exit 1
 fi
 
 ./scripts/release.sh
 
-VERSION="$(bun -e 'const pkg = await Bun.file("package.json").json(); console.log(pkg.version)')"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 DEST="${RELEASES_REPO}/pencil_api_local"
 mkdir -p "${DEST}"
 

@@ -4,11 +4,14 @@ Local vault-backed API for pencil_web. Runs on the user's laptop and serves regi
 
 ## Setup
 
+Install Rust (https://rustup.rs), then:
+
 ```bash
-bun install
 cp .env.example .env
-bun run dev
+cargo run
 ```
+
+From pencil_web, `npm run local-api:dev` starts this server.
 
 ## Endpoints
 
@@ -33,10 +36,10 @@ Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoi
 
 ## Standalone CLI
 
-`bun run build` compiles a single binary for this machine. It does not need Bun installed to run:
+`./scripts/release.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
 
 ```bash
-bun run build
+./scripts/release.sh
 ./dist/pencil-api-local
 ./dist/pencil-api-local --port 8300 --books-file ./data/books.json
 ```
@@ -45,22 +48,16 @@ bun run build
 
 ## Release
 
-Version lives in `package.json`.
-
-```bash
-./scripts/release.sh
-```
-
-Artifacts land in `dist/` (`pencil-api-local-<version>-<os>-<arch>`, plus `SHA256SUMS`).
+Version lives in `Cargo.toml`. `./scripts/release.sh` writes `dist/pencil-api-local-<version>-<os>-<arch>` and `dist/SHA256SUMS`.
 
 ## Publish
 
-`./scripts/publish.sh` builds those binaries, copies them to `/home/hly/repos/releases/pencil_api_local`, then commits and pushes that repo (`golery/releases`). Binaries are stored with Git LFS because GitHub rejects files over 100MB. `git-lfs` must be on `PATH` (or in `~/.local/bin`).
+`./scripts/publish.sh` builds that binary, copies it to `/home/hly/repos/releases/pencil_api_local`, then commits and pushes `golery/releases`. `git-lfs` must be on `PATH` (or in `~/.local/bin`) because that repo stores the binaries with Git LFS.
 
 ## Smoke test
 
 ```bash
-bun run start
+cargo run
 curl -X POST http://localhost:8300/api/pencil/book \
   -H 'Content-Type: application/json' \
   -d '{"name":"Personal","path":"./fixtures/vault/Personal"}'
