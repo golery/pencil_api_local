@@ -1,6 +1,6 @@
 # pencil_api_local
 
-Local vault-backed API for pencil_web. Runs on the user's laptop and serves registered markdown folders as Pencil books. Cloud books stay on goapi; the browser talks to this API directly at `http://127.0.0.1:8300`.
+Local vault-backed API for pencil_web. Runs on the user's laptop and serves registered markdown folders as Pencil books. Cloud books stay on goapi; the browser talks to this API directly at `http://127.0.0.1:8558`.
 
 ## Setup
 
@@ -18,7 +18,7 @@ From pencil_web, `npm run local-api:dev` starts this server.
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/health` | Liveness |
-| GET | `/api/pencil/book` | Linked books from `data/books.json` |
+| GET | `/api/pencil/book` | Linked books from the config file |
 | POST | `/api/pencil/book` | Body `{ name, path }` — link a folder |
 | PATCH | `/api/pencil/book/:id` | Rename display name |
 | DELETE | `/api/pencil/book/:id` | Unlink (files kept) |
@@ -41,10 +41,12 @@ Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoi
 ```bash
 ./scripts/release.sh
 ./dist/pencil-api-local
-./dist/pencil-api-local --port 8300 --books-file ./data/books.json
+./dist/pencil-api-local --port 8558
 ```
 
-`./dist/pencil-api-local --help` lists flags. `PORT`, `BOOKS_FILE`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
+`./dist/pencil-api-local --help` lists flags. `PORT`, `PENCIL_CONFIG`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
+
+Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is unset. The file looks like `{ "books": [] }`. On startup the server prints the config path. If the file is missing, it asks for the folder of the first book and creates the file.
 
 ## Release
 
@@ -58,8 +60,8 @@ Version lives in `Cargo.toml`. `./scripts/release.sh` writes `dist/pencil-api-lo
 
 ```bash
 cargo run
-curl -X POST http://localhost:8300/api/pencil/book \
+curl -X POST http://localhost:8558/api/pencil/book \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Personal","path":"./fixtures/vault/Personal"}'
-curl http://localhost:8300/api/pencil/book
+  -d '{"name":"Personal","path":"./data/books/Personal"}'
+curl http://localhost:8558/api/pencil/book
 ```

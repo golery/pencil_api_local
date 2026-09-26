@@ -9,7 +9,7 @@ use tower::ServiceExt;
 
 fn test_config(books_file: PathBuf) -> Config {
     Config {
-        books_file,
+        config_file: books_file,
         port: 0,
         cors_origins: vec![
             "https://pencil.golery.com".to_string(),

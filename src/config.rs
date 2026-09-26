@@ -9,22 +9,21 @@ const DEFAULT_CORS_ORIGINS: &[&str] = &[
 
 #[derive(Clone)]
 pub struct Config {
-    pub books_file: PathBuf,
+    pub config_file: PathBuf,
     pub port: u16,
     pub cors_origins: Vec<String>,
 }
 
 impl Config {
     pub fn load() -> Result<Self, String> {
-        let port_raw = env::var("PORT").unwrap_or_else(|_| "8300".to_string());
+        let port_raw = env::var("PORT").unwrap_or_else(|_| "8558".to_string());
         let port: u16 = port_raw
             .parse()
             .ok()
             .filter(|port| *port > 0)
             .ok_or_else(|| format!("Invalid PORT: {port_raw}"))?;
 
-        let books_raw = env::var("BOOKS_FILE").unwrap_or_else(|_| "./data/books.json".to_string());
-        let books_file = resolve_path(&books_raw);
+        let config_file = config_path()?;
 
         let mut cors_origins: Vec<String> = DEFAULT_CORS_ORIGINS
             .iter()
@@ -41,10 +40,64 @@ impl Config {
         }
 
         Ok(Self {
-            books_file,
+            config_file,
             port,
             cors_origins,
         })
+    }
+}
+
+/// `PENCIL_CONFIG` when set, otherwise `~/.golery/pencil.json`.
+pub fn config_path() -> Result<PathBuf, String> {
+    let configured = env::var("PENCIL_CONFIG").ok();
+    let home = env::var("HOME").ok();
+    config_path_from(configured.as_deref(), home.as_deref())
+}
+
+fn config_path_from(pencil_config: Option<&str>, home: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(raw) = pencil_config.map(str::trim).filter(|raw| !raw.is_empty()) {
+        return Ok(resolve_path(&expand_tilde_with(raw, home)));
+    }
+    let home = home
+        .map(str::trim)
+        .filter(|home| !home.is_empty())
+        .ok_or("HOME is not set. Set PENCIL_CONFIG to a config file path.")?;
+    Ok(PathBuf::from(home).join(".golery/pencil.json"))
+}
+
+fn expand_tilde_with(path: &str, home: Option<&str>) -> String {
+    let Some(rest) = path.strip_prefix('~') else {
+        return path.to_string();
+    };
+    let Some(home) = home.filter(|home| !home.is_empty()) else {
+        return path.to_string();
+    };
+    if rest.is_empty() {
+        return home.to_string();
+    }
+    if let Some(rest) = rest.strip_prefix('/') {
+        return PathBuf::from(home)
+            .join(rest)
+            .to_string_lossy()
+            .into_owned();
+    }
+    path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pencil_config_overrides_the_home_default() {
+        let chosen = config_path_from(Some("/tmp/pencil.json"), Some("/home/hly")).unwrap();
+        assert_eq!(chosen, PathBuf::from("/tmp/pencil.json"));
+
+        let fallback = config_path_from(None, Some("/home/hly")).unwrap();
+        assert_eq!(fallback, PathBuf::from("/home/hly/.golery/pencil.json"));
+
+        let tilde = config_path_from(Some("~/notes/pencil.json"), Some("/home/hly")).unwrap();
+        assert_eq!(tilde, PathBuf::from("/home/hly/notes/pencil.json"));
     }
 }
 

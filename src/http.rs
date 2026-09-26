@@ -80,7 +80,7 @@ async fn dispatch(state: &AppState, req: Request) -> Result<Reply, ApiError> {
     }
 
     let _registry = state.registry.lock().unwrap_or_else(|err| err.into_inner());
-    let books_file = &state.config.books_file;
+    let books_file = &state.config.config_file;
 
     if path == "/api/pencil/book" && method == Method::GET {
         let records = registry::load_registry(books_file)?;

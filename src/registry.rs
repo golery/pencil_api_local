@@ -15,24 +15,67 @@ pub struct BookRecord {
     pub order: i64,
 }
 
-pub fn load_registry(books_file: &Path) -> Result<Vec<BookRecord>, ApiError> {
-    ensure_file(books_file)?;
-    let raw = fs::read_to_string(books_file)?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(if raw.trim().is_empty() { "[]" } else { &raw })
-            .map_err(|err| ApiError::new(500, err.to_string()))?;
-    if !parsed.is_array() {
-        return Err(ApiError::new(500, "books.json must be an array"));
-    }
-    serde_json::from_value(parsed).map_err(|err| ApiError::new(500, err.to_string()))
+#[derive(Serialize, Deserialize)]
+struct PencilFile {
+    books: Vec<BookRecord>,
 }
 
-pub fn save_registry(books_file: &Path, records: &[BookRecord]) -> Result<(), ApiError> {
-    ensure_file(books_file)?;
-    let body =
-        serde_json::to_string_pretty(records).map_err(|err| ApiError::new(500, err.to_string()))?;
-    fs::write(books_file, format!("{body}\n"))?;
+pub fn load_registry(config_file: &Path) -> Result<Vec<BookRecord>, ApiError> {
+    ensure_file(config_file)?;
+    let raw = fs::read_to_string(config_file)?;
+    if raw.trim().is_empty() {
+        return Err(ApiError::new(500, "config file is empty"));
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|err| ApiError::new(500, err.to_string()))?;
+    let books = parsed
+        .get("books")
+        .ok_or_else(|| ApiError::new(500, "config file must contain a books array"))?;
+    if !books.is_array() {
+        return Err(ApiError::new(500, "config file must contain a books array"));
+    }
+    serde_json::from_value(books.clone()).map_err(|err| ApiError::new(500, err.to_string()))
+}
+
+pub fn save_registry(config_file: &Path, records: &[BookRecord]) -> Result<(), ApiError> {
+    ensure_file(config_file)?;
+    let body = serde_json::to_string_pretty(&PencilFile {
+        books: records.to_vec(),
+    })
+    .map_err(|err| ApiError::new(500, err.to_string()))?;
+    fs::write(config_file, format!("{body}\n"))?;
     Ok(())
+}
+
+/// Create a config file containing one book. `folder_path` must be an existing directory.
+pub fn create_with_book(config_file: &Path, folder_path: &str) -> Result<BookRecord, ApiError> {
+    let abs = resolve_path(folder_path);
+    let meta = fs::metadata(&abs).ok();
+    if meta.as_ref().is_none_or(|meta| !meta.is_dir()) {
+        return Err(ApiError::new(
+            400,
+            format!("Not a directory: {}", abs.display()),
+        ));
+    }
+    if let Some(parent) = config_file.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let abs_str = path_string(&abs);
+    let name = abs
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Book".to_string());
+    let record = BookRecord {
+        id: book_id_for(&abs_str),
+        name,
+        path: abs_str,
+        order: 0,
+    };
+    save_registry(config_file, &[record.clone()])?;
+    Ok(record)
 }
 
 pub fn add_book(books_file: &Path, name: &str, folder_path: &str) -> Result<BookRecord, ApiError> {
@@ -102,11 +145,36 @@ fn ensure_file(books_file: &Path) -> Result<(), ApiError> {
         }
     }
     if !books_file.exists() {
-        fs::write(books_file, "[]\n")?;
+        fs::write(books_file, "{\n  \"books\": []\n}\n")?;
     }
     Ok(())
 }
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_file_wraps_books() {
+        let dir = std::env::temp_dir().join(format!("pencil-config-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let folder = dir.join("Notes");
+        fs::create_dir_all(&folder).unwrap();
+        let file = dir.join("pencil.json");
+
+        let record = create_with_book(&file, folder.to_str().unwrap()).unwrap();
+        assert_eq!(record.name, "Notes");
+        assert_eq!(record.order, 0);
+
+        let raw = fs::read_to_string(&file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["books"][0]["path"], record.path);
+        assert_eq!(load_registry(&file).unwrap(), vec![record]);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

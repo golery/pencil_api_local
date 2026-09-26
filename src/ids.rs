@@ -25,8 +25,8 @@ mod tests {
     fn matches_javascript_vectors() {
         assert_eq!(path_to_id("book:/tmp/Personal"), 1_342_490_085);
         assert_eq!(
-            book_id_for("/home/hly/repos/pencil_api_local/fixtures/vault/Personal"),
-            2_476_373_636
+            book_id_for("/home/hly/repos/pencil_api_local/data/books/Personal"),
+            2_154_611_156
         );
         assert_eq!(path_to_id("/tmp/Personal:."), 2_420_233_300);
         assert_eq!(path_to_id("/tmp/Personal:Welcome.md"), 4_242_283_889);

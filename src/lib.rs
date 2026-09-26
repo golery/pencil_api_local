@@ -16,24 +16,86 @@ pub async fn run() -> Result<(), String> {
     load_dotenv();
     apply_cli(env::args().skip(1))?;
     let config = Config::load()?;
+    println!("Config: {}", config.config_file.display());
+    prepare_config(&config.config_file)?;
     serve(config).await.map_err(|err| err.to_string())
 }
 
 pub async fn serve(config: Config) -> io::Result<()> {
     let port = config.port;
-    let books_file = config.books_file.display().to_string();
     let origins = config.cors_origins.join(", ");
     let app = router(config);
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+        .await
+        .map_err(|err| bind_error(port, err))?;
     let bound = listener.local_addr()?.port();
     println!("pencil_api_local listening on http://localhost:{bound}");
-    println!("BOOKS_FILE={books_file}");
     println!("CORS origins: {origins}");
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
         .await
+}
+
+fn bind_error(port: u16, err: io::Error) -> io::Error {
+    if err.kind() == io::ErrorKind::AddrInUse {
+        io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("port {port} is already in use"),
+        )
+    } else {
+        io::Error::new(err.kind(), format!("failed to bind port {port}: {err}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn address_in_use_names_the_port() {
+        let err = bind_error(8558, io::Error::from_raw_os_error(98));
+        assert_eq!(err.kind(), io::ErrorKind::AddrInUse);
+        assert_eq!(err.to_string(), "port 8558 is already in use");
+    }
+}
+
+fn prepare_config(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    println!("Config file does not exist: {}", path.display());
+    println!("Enter the path to your first book folder to create it.");
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Err(
+            "No config file and stdin is not a terminal. Set PENCIL_CONFIG or create the file."
+                .to_string(),
+        );
+    }
+    loop {
+        eprint!("First book folder: ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+        let mut line = String::new();
+        let read = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|err| err.to_string())?;
+        if read == 0 {
+            return Err("No book folder path provided.".to_string());
+        }
+        let folder = line.trim();
+        if folder.is_empty() {
+            println!("Enter a folder path.");
+            continue;
+        }
+        match registry::create_with_book(path, folder) {
+            Ok(record) => {
+                println!("Created {} with book {}", path.display(), record.name);
+                return Ok(());
+            }
+            Err(err) => println!("{err}"),
+        }
+    }
 }
 
 fn apply_cli<I>(args: I) -> Result<(), String>
@@ -56,22 +118,12 @@ where
             "-p" | "--port" => {
                 env::set_var("PORT", take_value(&args, &mut index, arg)?);
             }
-            "-b" | "--books-file" => {
-                env::set_var("BOOKS_FILE", take_value(&args, &mut index, arg)?);
-            }
             _ if arg.starts_with("--port=") => {
                 let value = arg["--port=".len()..].to_string();
                 if value.is_empty() {
                     return Err("Missing value for --port".to_string());
                 }
                 env::set_var("PORT", value);
-            }
-            _ if arg.starts_with("--books-file=") => {
-                let value = arg["--books-file=".len()..].to_string();
-                if value.is_empty() {
-                    return Err("Missing value for --books-file".to_string());
-                }
-                env::set_var("BOOKS_FILE", value);
             }
             _ => return Err(format!("Unknown option: {arg}\n\n{HELP}")),
         }
@@ -129,14 +181,13 @@ Usage:
   pencil-api-local [options]
 
 Options:
-  -p, --port <port>         Listen port (default: 8300, or PORT)
-  -b, --books-file <path>   Book registry JSON (default: ./data/books.json, or BOOKS_FILE)
+  -p, --port <port>         Listen port (default: 8558, or PORT)
   -h, --help                Show this help
   -v, --version             Show version
 
 Environment:
   PORT            Listen port
-  BOOKS_FILE      Book registry JSON
+  PENCIL_CONFIG   Config file (default: ~/.golery/pencil.json)
   CORS_ORIGINS    Extra allowed browser origins, comma-separated
 
 A .env file in the working directory is loaded automatically.
