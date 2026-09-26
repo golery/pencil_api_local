@@ -31,7 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: ./scripts/release.sh
+        run: ./scripts/publish.sh
 
       - name: Stage binary
         run: |

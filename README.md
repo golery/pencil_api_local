@@ -44,10 +44,10 @@ Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoi
 
 ## Standalone CLI
 
-`./scripts/release.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
+`./scripts/publish.sh` builds a stripped binary for this machine. It does not need Rust installed to run:
 
 ```bash
-./scripts/release.sh
+./scripts/publish.sh
 ./dist/pencil-api-local
 ./dist/pencil-api-local --port 8558
 ```
@@ -60,11 +60,11 @@ Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is 
 
 Version lives in `Cargo.toml`. A push to `main` runs [`.github/workflows/release.yml`](.github/workflows/release.yml). That builds `linux-x64` on Ubuntu and `darwin-arm64` on macOS, then commits `releases/pencil-api-local-<version>-<os>-<arch>` and `releases/SHA256SUMS` back to `main`.
 
-`./scripts/release.sh` still builds a binary for the machine you are on, under `dist/`.
+`./scripts/publish.sh` still builds a binary for the machine you are on, under `dist/`.
 
 ## Publish
 
-`./scripts/publish.sh` fast-forwards `main` to the current branch in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts the release workflow.
+`./scripts/release.sh` fast-forwards `main` to the current branch in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts the release workflow.
 
 ## Smoke test
 

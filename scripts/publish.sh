@@ -1,59 +1,60 @@
 #!/usr/bin/env bash
-# Fast-forward main to the current branch and push it.
-# The push starts .github/workflows/release.yml, which commits releases/.
-#   ./scripts/publish.sh
+# Build a stripped release binary for this machine into dist/.
+# A push to main commits these binaries into releases/ via GitHub Actions.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-LAND_WORKTREE=""
+if [[ -n "${1:-}" ]]; then
+  echo "Unknown argument: $1" >&2
+  echo "Usage: ./scripts/publish.sh" >&2
+  exit 1
+fi
 
-cleanup_land_worktree() {
-  if [[ -n "${LAND_WORKTREE}" ]]; then
-    git worktree remove --force "${LAND_WORKTREE}" >/dev/null 2>&1 || true
-    LAND_WORKTREE=""
-  fi
-}
+if [[ -f "${HOME}/.cargo/env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.cargo/env"
+fi
 
-# Merge the current branch into main in another worktree so this checkout stays put.
-land_on_main() {
-  local branch
-  branch="$(git rev-parse --abbrev-ref HEAD)"
-  if [[ "${branch}" == "HEAD" ]]; then
-    echo "Detached HEAD. Check out a branch before publishing." >&2
-    exit 1
-  fi
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "Commit changes before publishing." >&2
-    exit 1
-  fi
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+NAME="pencil-api-local"
+HOST="$(rustc -vV | awk '/^host:/{print $2}')"
 
-  git fetch origin main
+case "${HOST}" in
+  x86_64-unknown-linux-gnu) platform="linux-x64" ;;
+  x86_64-unknown-linux-musl) platform="linux-x64-musl" ;;
+  aarch64-unknown-linux-gnu) platform="linux-arm64" ;;
+  aarch64-unknown-linux-musl) platform="linux-arm64-musl" ;;
+  x86_64-apple-darwin) platform="darwin-x64" ;;
+  aarch64-apple-darwin) platform="darwin-arm64" ;;
+  x86_64-pc-windows-msvc | x86_64-pc-windows-gnu) platform="windows-x64" ;;
+  aarch64-pc-windows-msvc) platform="windows-arm64" ;;
+  *) platform="${HOST}" ;;
+esac
 
-  if [[ "${branch}" == "main" ]]; then
-    git merge --ff-only origin/main
-    git push origin main
-    return
-  fi
+echo "Building ${NAME} ${VERSION} for ${platform}"
+cargo build --release
 
-  LAND_WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/pencil-api-local-main.XXXXXX")"
-  rmdir "${LAND_WORKTREE}"
-  git worktree add "${LAND_WORKTREE}" main
-  trap cleanup_land_worktree EXIT
+mkdir -p dist
+rm -f dist/${NAME} dist/${NAME}-* dist/SHA256SUMS
 
-  if ! git -C "${LAND_WORKTREE}" merge --ff-only origin/main; then
-    echo "main has diverged from origin/main." >&2
-    exit 1
-  fi
-  if ! git -C "${LAND_WORKTREE}" merge --ff-only "${branch}"; then
-    echo "Cannot fast-forward main to ${branch}. Update ${branch} with main first." >&2
-    exit 1
-  fi
-  git -C "${LAND_WORKTREE}" push origin main
+binary="target/release/${NAME}"
+if [[ "${platform}" == windows-* ]]; then
+  binary="${binary}.exe"
+fi
 
-  cleanup_land_worktree
-  trap - EXIT
-}
+outfile="dist/${NAME}-${VERSION}-${platform}"
+if [[ "${platform}" == windows-* ]]; then
+  outfile="${outfile}.exe"
+fi
 
-land_on_main
-echo "Pushed main. The release workflow will commit releases/."
+cp -a "${binary}" "${outfile}"
+cp -a "${binary}" "dist/${NAME}"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd dist && sha256sum "${outfile#dist/}" > SHA256SUMS)
+else
+  (cd dist && shasum -a 256 "${outfile#dist/}" > SHA256SUMS)
+fi
+
+echo "Built ${outfile}"
