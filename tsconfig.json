@@ -7,6 +7,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["bun"],
+    "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

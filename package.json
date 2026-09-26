@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/server.ts",
-    "start": "bun src/server.ts"
+    "start": "bun src/server.ts",
+    "build": "bun build --compile --outfile dist/pencil-api-local src/cli.ts",
+    "release": "./scripts/release.sh"
   },
   "devDependencies": {
     "@types/bun": "latest"

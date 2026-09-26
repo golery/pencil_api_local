@@ -1,15 +1,20 @@
-import { loadConfig } from "./config";
+import { loadConfig, type Config } from "./config";
 import { handleRequest } from "./routes/pencil";
 
-const config = loadConfig();
+export function startServer(config: Config = loadConfig()) {
+  const server = Bun.serve({
+    port: config.port,
+    async fetch(req) {
+      return handleRequest(req, config);
+    },
+  });
 
-const server = Bun.serve({
-  port: config.port,
-  async fetch(req) {
-    return handleRequest(req, config);
-  },
-});
+  console.log(`pencil_api_local listening on http://localhost:${server.port}`);
+  console.log(`BOOKS_FILE=${config.booksFile}`);
+  console.log(`CORS origins: ${config.corsOrigins.join(", ")}`);
+  return server;
+}
 
-console.log(`pencil_api_local listening on http://localhost:${server.port}`);
-console.log(`BOOKS_FILE=${config.booksFile}`);
-console.log(`CORS origins: ${config.corsOrigins.join(", ")}`);
+if (import.meta.main) {
+  startServer();
+}

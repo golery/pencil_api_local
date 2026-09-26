@@ -31,6 +31,36 @@ Allows `https://pencil.golery.com` and local Next (`http://localhost:3000`, `htt
 
 Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoid HTTPS→HTTP mixed content.
 
+## Standalone CLI
+
+`bun run build` compiles a single binary for this machine. It does not need Bun installed to run:
+
+```bash
+bun run build
+./dist/pencil-api-local
+./dist/pencil-api-local --port 8300 --books-file ./data/books.json
+```
+
+`./dist/pencil-api-local --help` lists flags. `PORT`, `BOOKS_FILE`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
+
+## Release
+
+Version lives in `package.json`. Pushing a matching `v*` tag builds binaries for Linux, macOS, and Windows and attaches them to a GitHub release.
+
+```bash
+# edit "version" in package.json, commit, then:
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+To build every platform locally without publishing:
+
+```bash
+./scripts/release.sh
+```
+
+Artifacts land in `dist/` (`pencil-api-local-<version>-<os>-<arch>`, plus `SHA256SUMS`). `./scripts/release.sh --publish` uploads them when the current commit is already tagged `v<version>`.
+
 ## Smoke test
 
 ```bash
