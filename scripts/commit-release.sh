@@ -43,14 +43,17 @@ fi
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 mkdir -p releases
 for file in "${files[@]}"; do
-  cp -a "${file}" "releases/$(basename "${file}")"
+  dest="releases/$(basename "${file}")"
+  cp -a "${file}" "${dest}"
+  chmod +x "${dest}"
 done
 (
   cd releases
   sha256sum pencil-api-local-* | LC_ALL=C sort -k2 > SHA256SUMS
 )
 
-git add -- releases
+git add --chmod=+x -- releases/pencil-api-local-*
+git add -- releases/SHA256SUMS
 if git diff --cached --quiet; then
   echo "Release binaries are unchanged."
   exit 0

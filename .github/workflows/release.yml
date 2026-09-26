@@ -69,4 +69,6 @@ jobs:
           merge-multiple: true
 
       - name: Commit binaries to releases/
-        run: ./scripts/commit-release.sh "${{ runner.temp }}/artifacts"
+        run: |
+          find "${{ runner.temp }}/artifacts" -type f -name 'pencil-api-local-*' -exec chmod +x {} +
+          ./scripts/commit-release.sh "${{ runner.temp }}/artifacts"
