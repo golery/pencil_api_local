@@ -1,6 +1,7 @@
-import { readdir, readFile, stat } from "fs/promises";
+import { readdir, readFile, stat, writeFile } from "fs/promises";
 import { basename, join, relative, resolve, sep } from "path";
-import { bookIdFor, pathToId } from "./ids";
+import { pathToId } from "./ids";
+import type { BookRecord } from "./registry";
 
 const IGNORED_DIR_NAMES = new Set([".obsidian", ".git", "node_modules"]);
 
@@ -11,6 +12,7 @@ export type Book = {
   name: string;
   order: number;
   userId: string;
+  folderPath: string;
 };
 
 export type Node = {
@@ -27,11 +29,8 @@ export type Node = {
   name: string;
   text: string | null;
   data: null;
-};
-
-export type VaultSnapshot = {
-  books: Book[];
-  nodesByBookId: Map<number, Node[]>;
+  /** Relative path under book root for .md files only (e.g. "Welcome.md") */
+  relPath: string | null;
 };
 
 function isIgnoredName(name: string): boolean {
@@ -47,12 +46,12 @@ function displayName(entryName: string, isFile: boolean): string {
   return entryName;
 }
 
-/** Ensure resolved path stays under vault root. */
-export function assertUnderVault(vaultPath: string, candidate: string): string {
-  const root = resolve(vaultPath);
+/** Ensure resolved path stays under book root. */
+export function assertUnderRoot(bookRoot: string, candidate: string): string {
+  const root = resolve(bookRoot);
   const resolved = resolve(candidate);
   if (resolved !== root && !resolved.startsWith(root + sep)) {
-    throw new Error(`Path escapes vault: ${candidate}`);
+    throw new Error(`Path escapes book folder: ${candidate}`);
   }
   return resolved;
 }
@@ -76,35 +75,39 @@ async function listEntries(dir: string): Promise<DirEntry[]> {
   return entries;
 }
 
-async function walkBook(
-  vaultPath: string,
-  bookDir: string,
-  bookId: number,
-  rootRel: string,
-): Promise<Node[]> {
+/** Walk a registered book folder into goapi-shaped nodes. */
+export async function scanBookFolder(record: BookRecord): Promise<{ book: Book; nodes: Node[] }> {
+  const bookDir = resolve(record.path);
+  const s = await stat(bookDir).catch(() => null);
+  if (!s || !s.isDirectory()) {
+    throw Object.assign(new Error(`Book folder not found: ${bookDir}`), { status: 404 });
+  }
+
+  const bookId = record.id;
   const nodes: Node[] = [];
+  const idPrefix = bookDir; // absolute path as stable id namespace
 
   async function visit(
     absPath: string,
-    relPath: string,
     parentId: number | null,
     isRoot: boolean,
   ): Promise<number> {
-    assertUnderVault(vaultPath, absPath);
-    const s = await stat(absPath);
-    const isDir = s.isDirectory();
+    assertUnderRoot(bookDir, absPath);
+    const st = await stat(absPath);
+    const isDir = st.isDirectory();
     const entryName = basename(absPath);
-    const name = isRoot ? basename(bookDir) : displayName(entryName, !isDir);
-    const id = pathToId(relPath);
+    const name = isRoot ? record.name : displayName(entryName, !isDir);
+    const rel = isRoot ? "." : relative(bookDir, absPath).split(sep).join("/");
+    const id = pathToId(`${idPrefix}:${rel}`);
 
     let text: string | null = null;
     const children: number[] = [];
+    const relPath: string | null = isDir ? null : rel;
 
     if (isDir) {
       const entries = await listEntries(absPath);
       for (const entry of entries) {
-        const childRel = relative(vaultPath, entry.path).split(sep).join("/");
-        const childId = await visit(entry.path, childRel, id, false);
+        const childId = await visit(entry.path, id, false);
         children.push(childId);
       }
     } else {
@@ -125,123 +128,78 @@ async function walkBook(
       name,
       text,
       data: null,
+      relPath,
     });
 
     return id;
   }
 
-  await visit(bookDir, rootRel, null, true);
-  return nodes;
+  await visit(bookDir, null, true);
+  const rootNode = nodes.find((n) => n.parentId === null);
+  if (!rootNode) {
+    throw new Error(`Missing root node for book ${record.name}`);
+  }
+
+  // Prefer display name on root
+  rootNode.name = record.name;
+  rootNode.title = record.name;
+
+  const book: Book = {
+    id: bookId,
+    code: record.name,
+    rootId: rootNode.id,
+    name: record.name,
+    order: record.order,
+    userId: "local",
+    folderPath: bookDir,
+  };
+
+  return { book, nodes };
 }
 
-export async function scanVault(vaultPath: string): Promise<VaultSnapshot> {
-  const root = resolve(vaultPath);
-  const rootStat = await stat(root).catch(() => null);
-  if (!rootStat || !rootStat.isDirectory()) {
-    throw new Error(`VAULT_PATH is not a directory: ${root}`);
-  }
-
-  const top = await readdir(root);
-  const topDirs: string[] = [];
-  const topMd: string[] = [];
-
-  for (const name of top) {
-    if (isIgnoredName(name)) continue;
-    const path = join(root, name);
-    const s = await stat(path);
-    if (s.isDirectory()) topDirs.push(name);
-    else if (s.isFile() && name.toLowerCase().endsWith(".md")) topMd.push(name);
-  }
-
-  topDirs.sort((a, b) => a.localeCompare(b));
-
+export async function listBooksFromRegistry(records: BookRecord[]): Promise<Book[]> {
   const books: Book[] = [];
-  const nodesByBookId = new Map<number, Node[]>();
-
-  if (topDirs.length === 0) {
-    // Synthetic book: entire vault as one book
-    const bookName = basename(root);
-    const bookId = bookIdFor(bookName);
-    const rootRel = ".";
-    const rootId = pathToId(rootRel);
-
-    // Build a root node for the vault, with top-level md (and any nested dirs we missed — none)
-    const nodes: Node[] = [];
-    const children: number[] = [];
-
-    for (const name of topMd.sort((a, b) => a.localeCompare(b))) {
-      const abs = join(root, name);
-      const rel = name;
-      const id = pathToId(rel);
-      const display = displayName(name, true);
-      const text = await readFile(abs, "utf8");
-      nodes.push({
-        id,
-        createTime: null,
-        updateTime: null,
-        app: 1,
+  const sorted = [...records].sort((a, b) => a.order - b.order);
+  for (const record of sorted) {
+    try {
+      const { book } = await scanBookFolder(record);
+      books.push(book);
+    } catch (err) {
+      // Still list the book even if folder temporarily missing — synthetic root
+      const rootId = pathToId(`${resolve(record.path)}:.`);
+      books.push({
+        id: record.id,
+        code: record.name,
+        rootId,
+        name: record.name,
+        order: record.order,
         userId: "local",
-        type: null,
-        bookId,
-        parentId: rootId,
-        children: [],
-        title: display,
-        name: display,
-        text,
-        data: null,
+        folderPath: resolve(record.path),
       });
-      children.push(id);
+      console.warn(`Book folder unavailable: ${record.path}`, err);
     }
+  }
+  return books;
+}
 
-    nodes.unshift({
-      id: rootId,
-      createTime: null,
-      updateTime: null,
-      app: 1,
-      userId: "local",
-      type: null,
-      bookId,
-      parentId: null,
-      children,
-      title: bookName,
-      name: bookName,
-      text: null,
-      data: null,
-    });
-
-    books.push({
-      id: bookId,
-      code: bookName,
-      rootId,
-      name: bookName,
-      order: 0,
-      userId: "local",
-    });
-    nodesByBookId.set(bookId, nodes);
-    return { books, nodesByBookId };
+/** Write markdown body for a file node; returns the updated node. */
+export async function writeNodeText(
+  record: BookRecord,
+  nodeId: number,
+  text: string,
+): Promise<Node> {
+  const { nodes } = await scanBookFolder(record);
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) {
+    throw Object.assign(new Error("Node not found"), { status: 404 });
+  }
+  if (!node.relPath) {
+    throw Object.assign(new Error("Cannot write: node is not a markdown file"), { status: 400 });
   }
 
-  for (let i = 0; i < topDirs.length; i++) {
-    const folderName = topDirs[i]!;
-    const bookDir = join(root, folderName);
-    const bookId = bookIdFor(folderName);
-    const rootRel = folderName;
-    const nodes = await walkBook(root, bookDir, bookId, rootRel);
-    const rootNode = nodes.find((n) => n.parentId === null);
-    if (!rootNode) {
-      throw new Error(`Missing root node for book ${folderName}`);
-    }
+  const bookDir = resolve(record.path);
+  const abs = assertUnderRoot(bookDir, join(bookDir, node.relPath));
+  await writeFile(abs, text, "utf8");
 
-    books.push({
-      id: bookId,
-      code: folderName,
-      rootId: rootNode.id,
-      name: folderName,
-      order: i,
-      userId: "local",
-    });
-    nodesByBookId.set(bookId, nodes);
-  }
-
-  return { books, nodesByBookId };
+  return { ...node, text };
 }

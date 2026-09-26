@@ -1,5 +1,14 @@
 import type { Config } from "../config";
-import { scanVault } from "../vault/scan";
+import {
+  addBook,
+  getBookRecord,
+  loadRegistry,
+  removeBook,
+  updateBookName,
+} from "../vault/registry";
+import { listBooksFromRegistry, scanBookFolder, writeNodeText } from "../vault/scan";
+import { stat } from "fs/promises";
+import { resolve } from "path";
 
 const NOT_IMPLEMENTED = { error: "Write operations are not supported by pencil_api_local" };
 
@@ -9,7 +18,6 @@ function corsHeaders(req: Request, config: Config): Record<string, string> {
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, appId",
     "Access-Control-Max-Age": "86400",
-    // Chrome Private Network Access: public site (pencil.golery.com) → localhost
     "Access-Control-Allow-Private-Network": "true",
   };
 
@@ -39,6 +47,13 @@ function corsPreflight(req: Request, config: Config): Response {
   });
 }
 
+function statusOf(err: unknown): number {
+  if (err && typeof err === "object" && "status" in err && typeof (err as any).status === "number") {
+    return (err as any).status;
+  }
+  return 500;
+}
+
 export async function handleRequest(req: Request, config: Config): Promise<Response> {
   if (req.method === "OPTIONS") {
     return corsPreflight(req, config);
@@ -48,6 +63,10 @@ export async function handleRequest(req: Request, config: Config): Promise<Respo
   const path = url.pathname.replace(/\/+$/, "") || "/";
 
   try {
+    if (path === "/api/health" && req.method === "GET") {
+      return json({ ok: true }, req, config);
+    }
+
     if (path === "/api/public/signin" && req.method === "POST") {
       return json({ token: "local" }, req, config);
     }
@@ -57,34 +76,87 @@ export async function handleRequest(req: Request, config: Config): Promise<Respo
     }
 
     if (path === "/api/pencil/book" && req.method === "GET") {
-      const { books } = await scanVault(config.vaultPath);
+      const records = await loadRegistry(config.booksFile);
+      const books = await listBooksFromRegistry(records);
       return json(books, req, config);
+    }
+
+    if (path === "/api/pencil/book" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { name?: string; path?: string };
+      const name = body.name?.trim();
+      const folderPath = body.path?.trim();
+      if (!name || !folderPath) {
+        return json({ error: "name and path are required" }, req, config, 400);
+      }
+      const abs = resolve(folderPath);
+      const st = await stat(abs).catch(() => null);
+      if (!st || !st.isDirectory()) {
+        return json({ error: `Not a directory: ${abs}` }, req, config, 400);
+      }
+      const record = await addBook(config.booksFile, name, abs);
+      const { book } = await scanBookFolder(record);
+      return json({ book }, req, config, 201);
+    }
+
+    const bookIdMatch = path.match(/^\/api\/pencil\/book\/(\d+)$/);
+    if (bookIdMatch) {
+      const bookId = Number(bookIdMatch[1]);
+      if (req.method === "PATCH") {
+        const body = (await req.json().catch(() => ({}))) as { name?: string };
+        const name = body.name?.trim();
+        if (!name) {
+          return json({ error: "name is required" }, req, config, 400);
+        }
+        const record = await updateBookName(config.booksFile, bookId, name);
+        const { book } = await scanBookFolder(record).catch(async () => {
+          return {
+            book: {
+              id: record.id,
+              code: record.name,
+              rootId: 0,
+              name: record.name,
+              order: record.order,
+              userId: "local",
+              folderPath: record.path,
+            },
+          };
+        });
+        return json(book, req, config);
+      }
+      if (req.method === "DELETE") {
+        await removeBook(config.booksFile, bookId);
+        return json({ ok: true }, req, config);
+      }
     }
 
     const bookNodesMatch = path.match(/^\/api\/pencil\/book\/(\d+)\/node$/);
     if (bookNodesMatch && req.method === "GET") {
       const bookId = Number(bookNodesMatch[1]);
-      const { nodesByBookId } = await scanVault(config.vaultPath);
-      const nodes = nodesByBookId.get(bookId);
-      if (!nodes) {
+      const record = await getBookRecord(config.booksFile, bookId);
+      if (!record) {
         return json({ error: "Book not found" }, req, config, 404);
       }
+      const { nodes } = await scanBookFolder(record);
       return json(nodes, req, config);
     }
 
-    // Known goapi mutation routes → 501
-    if (
-      path === "/api/pencil/book" &&
-      (req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE")
-    ) {
-      return json(NOT_IMPLEMENTED, req, config, 501);
+    const writeNodeMatch = path.match(/^\/api\/pencil\/book\/(\d+)\/node\/(\d+)$/);
+    if (writeNodeMatch && req.method === "PUT") {
+      const bookId = Number(writeNodeMatch[1]);
+      const nodeId = Number(writeNodeMatch[2]);
+      const body = (await req.json().catch(() => ({}))) as { text?: string };
+      if (typeof body.text !== "string") {
+        return json({ error: "text (string) is required" }, req, config, 400);
+      }
+      const record = await getBookRecord(config.booksFile, bookId);
+      if (!record) {
+        return json({ error: "Book not found" }, req, config, 404);
+      }
+      const node = await writeNodeText(record, nodeId, body.text);
+      return json(node, req, config);
     }
-    if (
-      /^\/api\/pencil\/book\/\d+$/.test(path) &&
-      (req.method === "PATCH" || req.method === "DELETE" || req.method === "PUT")
-    ) {
-      return json(NOT_IMPLEMENTED, req, config, 501);
-    }
+
+    // Remaining goapi mutation routes → 501
     if (
       path === "/api/pencil/book/reorder" ||
       /^\/api\/pencil\/(move|add|delete)\/\d+$/.test(path) ||
@@ -99,6 +171,6 @@ export async function handleRequest(req: Request, config: Config): Promise<Respo
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(err);
-    return json({ error: message }, req, config, 500);
+    return json({ error: message }, req, config, statusOf(err));
   }
 }

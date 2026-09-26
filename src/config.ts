@@ -7,21 +7,18 @@ const DEFAULT_CORS_ORIGINS = [
 ];
 
 export type Config = {
-  vaultPath: string;
+  booksFile: string;
   port: number;
   corsOrigins: string[];
 };
 
 export function loadConfig(): Config {
-  const vaultPathRaw = process.env.VAULT_PATH;
-  if (!vaultPathRaw) {
-    throw new Error("VAULT_PATH is required (see .env.example)");
-  }
-
   const port = Number(process.env.PORT || "8300");
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`Invalid PORT: ${process.env.PORT}`);
   }
+
+  const booksFile = resolve(process.env.BOOKS_FILE || "./data/books.json");
 
   const extra = (process.env.CORS_ORIGINS || "")
     .split(",")
@@ -29,7 +26,7 @@ export function loadConfig(): Config {
     .filter(Boolean);
 
   return {
-    vaultPath: resolve(vaultPathRaw),
+    booksFile,
     port,
     corsOrigins: [...new Set([...DEFAULT_CORS_ORIGINS, ...extra])],
   };

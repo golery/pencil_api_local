@@ -11,5 +11,5 @@ const server = Bun.serve({
 });
 
 console.log(`pencil_api_local listening on http://localhost:${server.port}`);
-console.log(`VAULT_PATH=${config.vaultPath}`);
+console.log(`BOOKS_FILE=${config.booksFile}`);
 console.log(`CORS origins: ${config.corsOrigins.join(", ")}`);
