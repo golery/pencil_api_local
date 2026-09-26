@@ -10,6 +10,7 @@ const DEFAULT_CORS_ORIGINS: &[&str] = &[
 #[derive(Clone)]
 pub struct Config {
     pub config_file: PathBuf,
+    pub host: String,
     pub port: u16,
     pub cors_origins: Vec<String>,
 }
@@ -23,6 +24,7 @@ impl Config {
             .filter(|port| *port > 0)
             .ok_or_else(|| format!("Invalid PORT: {port_raw}"))?;
 
+        let host = listen_host(env::var("HOST").ok().as_deref())?;
         let config_file = config_path()?;
 
         let mut cors_origins: Vec<String> = DEFAULT_CORS_ORIGINS
@@ -41,9 +43,29 @@ impl Config {
 
         Ok(Self {
             config_file,
+            host,
             port,
             cors_origins,
         })
+    }
+}
+
+/// Bind address from `HOST`. Unset means `127.0.0.1`.
+pub fn listen_host(value: Option<&str>) -> Result<String, String> {
+    let host = value.unwrap_or("127.0.0.1").trim();
+    if host.is_empty() {
+        return Err("Invalid HOST: empty".to_string());
+    }
+    Ok(host.to_string())
+}
+
+/// `host:port`, with brackets when `host` is an IPv6 address.
+pub fn socket_addr(host: &str, port: u16) -> String {
+    let host = host.trim().trim_matches(|ch| ch == '[' || ch == ']');
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
     }
 }
 
@@ -98,6 +120,15 @@ mod tests {
 
         let tilde = config_path_from(Some("~/notes/pencil.json"), Some("/home/hly")).unwrap();
         assert_eq!(tilde, PathBuf::from("/home/hly/notes/pencil.json"));
+    }
+
+    #[test]
+    fn listen_host_defaults_to_loopback() {
+        assert_eq!(listen_host(None).unwrap(), "127.0.0.1");
+        assert_eq!(listen_host(Some(" 192.168.1.10 ")).unwrap(), "192.168.1.10");
+        assert!(listen_host(Some("  ")).is_err());
+        assert_eq!(socket_addr("127.0.0.1", 8558), "127.0.0.1:8558");
+        assert_eq!(socket_addr("::1", 8558), "[::1]:8558");
     }
 }
 

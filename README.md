@@ -28,9 +28,17 @@ From pencil_web, `npm run local-api:dev` starts this server.
 
 Node write mutations return `501`.
 
-## CORS
+## Binding
+
+Listens on `127.0.0.1` and port `8558` (`PORT` or `--port`). The operating system then refuses connections from other machines.
+
+`HOST` or `--host <addr>` opts in to another address, for example `--host 192.168.1.10` when testing from a phone. Use the address that device sends in the `Host` header. A request is rejected with `403` unless `Host` is `127.0.0.1:<port>`, `localhost:<port>`, or `<that address>:<port>`. That check blocks DNS rebinding.
+
+## CORS and browser requests
 
 Allows `https://pencil.golery.com` and local Next (`http://localhost:3000`, `http://127.0.0.1:3000`). Add more via `CORS_ORIGINS`. Includes `Access-Control-Allow-Private-Network: true`.
+
+A request that sends `Origin` must use one of those origins, or the server returns `403`. Clients that omit `Origin`, such as `curl`, are allowed. A request with a body must use `Content-Type: application/json`; anything else returns `415`, so a page cannot post a plain-text body without a preflight.
 
 Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoid HTTPS→HTTP mixed content.
 
@@ -44,7 +52,7 @@ Prefer local pencil_web (`http://localhost:3000`) when using vault books to avoi
 ./dist/pencil-api-local --port 8558
 ```
 
-`./dist/pencil-api-local --help` lists flags. `PORT`, `PENCIL_CONFIG`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
+`./dist/pencil-api-local --help` lists flags. `PORT`, `HOST`, `PENCIL_CONFIG`, `CORS_ORIGINS`, and a `.env` file in the working directory still apply.
 
 Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is unset. The file looks like `{ "books": [] }`. On startup the server prints the config path. If the file is missing, it asks for the folder of the first book and creates the file.
 

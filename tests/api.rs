@@ -10,7 +10,8 @@ use tower::ServiceExt;
 fn test_config(books_file: PathBuf) -> Config {
     Config {
         config_file: books_file,
-        port: 0,
+        host: "127.0.0.1".to_string(),
+        port: 8558,
         cors_origins: vec![
             "https://pencil.golery.com".to_string(),
             "http://localhost:3000".to_string(),
@@ -19,11 +20,23 @@ fn test_config(books_file: PathBuf) -> Config {
     }
 }
 
+fn ensure_host(request: Request<Body>) -> Request<Body> {
+    if request.headers().contains_key("host") {
+        return request;
+    }
+    let (mut parts, body) = request.into_parts();
+    parts.headers.insert(
+        axum::http::header::HOST,
+        axum::http::HeaderValue::from_static("localhost:8558"),
+    );
+    Request::from_parts(parts, body)
+}
+
 async fn send(
     app: axum::Router,
     request: Request<Body>,
 ) -> (StatusCode, Value, axum::http::HeaderMap) {
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(ensure_host(request)).await.unwrap();
     let status = response.status();
     let headers = response.headers().clone();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -70,21 +83,19 @@ async fn health_signin_user_and_cors() {
     );
     assert_eq!(headers["access-control-allow-private-network"], "true");
 
-    let (status, json, headers) = send(
+    let (status, json, _) = send(
         app.clone(),
         Request::builder()
             .uri("/api/user")
-            .header("Origin", "https://evil.test")
             .body(Body::empty())
             .unwrap(),
     )
     .await;
+    assert_eq!(status, StatusCode::OK);
     assert_eq!(
         json,
         serde_json::json!({ "id": 1, "email": "local@pencil" })
     );
-    assert_eq!(status, StatusCode::OK);
-    assert!(headers.get("access-control-allow-origin").is_none());
 
     let (status, _, headers) = send(
         app,
@@ -101,6 +112,142 @@ async fn health_signin_user_and_cors() {
         headers["access-control-allow-origin"],
         "https://pencil.golery.com"
     );
+}
+
+#[tokio::test]
+async fn rejects_foreign_origin_host_and_content_type() {
+    let app = router(test_config(std::env::temp_dir().join("unused-books.json")));
+
+    let (status, json, headers) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("Origin", "https://evil.test")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"], "Origin is not allowed");
+    assert!(headers.get("access-control-allow-origin").is_none());
+
+    let (status, json, headers) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("Origin", "http://localhost:3000")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json, serde_json::json!({ "ok": true }));
+    assert_eq!(
+        headers["access-control-allow-origin"],
+        "http://localhost:3000"
+    );
+
+    let (status, _, _) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, json, _) = send(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri("/api/pencil/book")
+            .header("content-type", "text/plain")
+            .body(Body::from(r#"{"name":"x","path":"/"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(json["error"], "Content-Type must be application/json");
+
+    let (status, json, _) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("host", "evil.com:8558")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"], "Host is not allowed");
+
+    let (status, json, _) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("host", "localhost:8558")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json, serde_json::json!({ "ok": true }));
+
+    let (status, json, _) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("host", "127.0.0.1:8558")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json, serde_json::json!({ "ok": true }));
+
+    let (status, _, headers) = send(
+        app,
+        Request::builder()
+            .method("OPTIONS")
+            .uri("/api/pencil/book")
+            .header("Origin", "https://evil.test")
+            .header("Access-Control-Request-Method", "POST")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(headers.get("access-control-allow-origin").is_none());
+}
+
+#[tokio::test]
+async fn allows_an_opt_in_bind_host() {
+    let mut config = test_config(std::env::temp_dir().join("unused-books.json"));
+    config.host = "192.168.1.10".to_string();
+    let app = router(config);
+
+    let (status, _, _) = send(
+        app.clone(),
+        Request::builder()
+            .uri("/api/health")
+            .header("host", "192.168.1.10:8558")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _, _) = send(
+        app,
+        Request::builder()
+            .uri("/api/health")
+            .header("host", "10.0.0.8:8558")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

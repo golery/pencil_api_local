@@ -35,15 +35,54 @@ struct Reply {
 
 async fn handle(State(state): State<Arc<AppState>>, req: Request) -> Response {
     let origin = header_string(req.headers(), header::ORIGIN);
-    if req.method() == Method::OPTIONS {
-        return with_cors(
-            StatusCode::NO_CONTENT.into_response(),
+    let host = header_string(req.headers(), header::HOST);
+    let config = state.config.clone();
+
+    if !host_allowed(host.as_deref(), &config) {
+        return reject(
+            StatusCode::FORBIDDEN,
+            "Host is not allowed",
             &origin,
-            &state.config,
+            &config,
         );
     }
+    if origin
+        .as_ref()
+        .is_some_and(|origin| !origin_allowed(origin, &config))
+    {
+        return reject(
+            StatusCode::FORBIDDEN,
+            "Origin is not allowed",
+            &origin,
+            &config,
+        );
+    }
+    if req.method() == Method::OPTIONS {
+        return with_cors(StatusCode::NO_CONTENT.into_response(), &origin, &config);
+    }
 
-    let config = state.config.clone();
+    let (parts, body) = req.into_parts();
+    let bytes = match axum::body::to_bytes(body, MAX_BODY).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return reject(
+                StatusCode::BAD_REQUEST,
+                "request body too large",
+                &origin,
+                &config,
+            );
+        }
+    };
+    if !bytes.is_empty() && !is_json_content_type(parts.headers.get(header::CONTENT_TYPE)) {
+        return reject(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Content-Type must be application/json",
+            &origin,
+            &config,
+        );
+    }
+    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
+
     let reply = match dispatch(&state, req).await {
         Ok(reply) => reply,
         Err(err) => {
@@ -278,6 +317,55 @@ fn parse_u32(value: &str) -> Option<u32> {
         return None;
     }
     value.parse().ok()
+}
+
+fn reject(status: StatusCode, message: &str, origin: &Option<String>, config: &Config) -> Response {
+    with_cors(
+        (status, Json(serde_json::json!({ "error": message }))).into_response(),
+        origin,
+        config,
+    )
+}
+
+fn origin_allowed(origin: &str, config: &Config) -> bool {
+    config.cors_origins.iter().any(|allowed| allowed == origin)
+}
+
+fn host_allowed(host_header: Option<&str>, config: &Config) -> bool {
+    let Some(host_header) = host_header.map(str::trim).filter(|host| !host.is_empty()) else {
+        return false;
+    };
+    allowed_hosts(config)
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(host_header))
+}
+
+fn allowed_hosts(config: &Config) -> Vec<String> {
+    let mut hosts = vec![
+        crate::config::socket_addr("127.0.0.1", config.port),
+        crate::config::socket_addr("localhost", config.port),
+    ];
+    if !config.host.trim().is_empty() {
+        let configured = crate::config::socket_addr(&config.host, config.port);
+        if !hosts
+            .iter()
+            .any(|host| host.eq_ignore_ascii_case(&configured))
+        {
+            hosts.push(configured);
+        }
+    }
+    hosts
+}
+
+fn is_json_content_type(value: Option<&axum::http::HeaderValue>) -> bool {
+    let Some(raw) = value.and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    raw.split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("application/json")
 }
 
 fn header_string(headers: &HeaderMap, name: header::HeaderName) -> Option<String> {

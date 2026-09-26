@@ -23,13 +23,18 @@ pub async fn run() -> Result<(), String> {
 
 pub async fn serve(config: Config) -> io::Result<()> {
     let port = config.port;
+    let host = config.host.clone();
     let origins = config.cors_origins.join(", ");
     let app = router(config);
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+    let addr = config::socket_addr(&host, port);
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .map_err(|err| bind_error(port, err))?;
     let bound = listener.local_addr()?.port();
-    println!("pencil_api_local listening on http://localhost:{bound}");
+    println!(
+        "pencil_api_local listening on http://{}",
+        config::socket_addr(&host, bound)
+    );
     println!("CORS origins: {origins}");
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
@@ -118,12 +123,22 @@ where
             "-p" | "--port" => {
                 env::set_var("PORT", take_value(&args, &mut index, arg)?);
             }
+            "--host" => {
+                env::set_var("HOST", take_value(&args, &mut index, arg)?);
+            }
             _ if arg.starts_with("--port=") => {
                 let value = arg["--port=".len()..].to_string();
                 if value.is_empty() {
                     return Err("Missing value for --port".to_string());
                 }
                 env::set_var("PORT", value);
+            }
+            _ if arg.starts_with("--host=") => {
+                let value = arg["--host=".len()..].to_string();
+                if value.is_empty() {
+                    return Err("Missing value for --host".to_string());
+                }
+                env::set_var("HOST", value);
             }
             _ => return Err(format!("Unknown option: {arg}\n\n{HELP}")),
         }
@@ -182,11 +197,13 @@ Usage:
 
 Options:
   -p, --port <port>         Listen port (default: 8558, or PORT)
+      --host <addr>         Bind address (default: 127.0.0.1, or HOST)
   -h, --help                Show this help
   -v, --version             Show version
 
 Environment:
   PORT            Listen port
+  HOST            Bind address (default: 127.0.0.1). Other machines cannot connect unless this is set.
   PENCIL_CONFIG   Config file (default: ~/.golery/pencil.json)
   CORS_ORIGINS    Extra allowed browser origins, comma-separated
 
