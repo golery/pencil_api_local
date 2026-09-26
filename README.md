@@ -58,13 +58,11 @@ Books live in `PENCIL_CONFIG`, or `~/.golery/pencil.json` when that variable is 
 
 ## Release
 
-Version lives in `Cargo.toml`. A push to `main` runs [`.github/workflows/release.yml`](.github/workflows/release.yml). That builds `linux-x64` on Ubuntu and `darwin-arm64` on macOS, then commits `releases/pencil-api-local-<version>-<os>-<arch>` and `releases/SHA256SUMS` back to `main`.
-
-`./scripts/publish.sh` still builds a binary for the machine you are on, under `dist/`.
+Version lives in `Cargo.toml`. `./scripts/release.sh` fast-forwards `main` to the current branch in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds `linux-x64` on Ubuntu and `darwin-arm64` on macOS, then commits `releases/pencil-api-local-<version>-<os>-<arch>` and `releases/SHA256SUMS` back to `main`.
 
 ## Publish
 
-`./scripts/release.sh` fast-forwards `main` to the current branch in a temporary worktree and pushes `main`. This checkout stays on its branch. Commit local changes first. The push starts the release workflow.
+`./scripts/publish.sh` builds a binary for the machine you are on, under `dist/`. The release workflow runs the same script on Ubuntu and macOS.
 
 ## Smoke test
 
