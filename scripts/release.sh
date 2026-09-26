@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fast-forward main to the current branch and push it.
+# Merge the current branch into main and push it.
 # The push starts .github/workflows/release.yml, which commits releases/.
 #   ./scripts/release.sh
 set -euo pipefail
@@ -45,8 +45,8 @@ land_on_main() {
     echo "main has diverged from origin/main." >&2
     exit 1
   fi
-  if ! git -C "${LAND_WORKTREE}" merge --ff-only "${branch}"; then
-    echo "Cannot fast-forward main to ${branch}. Update ${branch} with main first." >&2
+  if ! git -C "${LAND_WORKTREE}" merge --no-edit "${branch}"; then
+    echo "Merge of ${branch} into main failed." >&2
     exit 1
   fi
   git -C "${LAND_WORKTREE}" push origin main
