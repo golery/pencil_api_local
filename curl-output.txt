@@ -1,0 +1,103 @@
+=== GET /api/pencil/book ===
+[
+  {
+    "id": 1064078550,
+    "code": "Personal",
+    "rootId": 1851428013,
+    "name": "Personal",
+    "order": 0,
+    "userId": "local"
+  },
+  {
+    "id": 3901237867,
+    "code": "Work",
+    "rootId": 3687128704,
+    "name": "Work",
+    "order": 1,
+    "userId": "local"
+  }
+]
+
+=== GET /api/pencil/book/1064078550/node ===
+[
+  {
+    "id": 553722649,
+    "createTime": null,
+    "updateTime": null,
+    "app": 1,
+    "userId": "local",
+    "type": null,
+    "bookId": 1064078550,
+    "parentId": 1344967244,
+    "children": [],
+    "title": "Overview",
+    "name": "Overview",
+    "text": "# Projects overview\n\nNotes living in a subfolder.\n",
+    "data": null
+  },
+  {
+    "id": 1344967244,
+    "createTime": null,
+    "updateTime": null,
+    "app": 1,
+    "userId": "local",
+    "type": null,
+    "bookId": 1064078550,
+    "parentId": 1851428013,
+    "children": [
+      553722649
+    ],
+    "title": "Projects",
+    "name": "Projects",
+    "text": null,
+    "data": null
+  },
+  {
+    "id": 2921400717,
+    "createTime": null,
+    "updateTime": null,
+    "app": 1,
+    "userId": "local",
+    "type": null,
+    "bookId": 1064078550,
+    "parentId": 1851428013,
+    "children": [],
+    "title": "Welcome",
+    "name": "Welcome",
+    "text": "# Welcome\n\nThis is the root note of the **Personal** book.\n",
+    "data": null
+  },
+  {
+    "id": 1851428013,
+    "createTime": null,
+    "updateTime": null,
+    "app": 1,
+    "userId": "local",
+    "type": null,
+    "bookId": 1064078550,
+    "parentId": null,
+    "children": [
+      1344967244,
+      2921400717
+    ],
+    "title": "Personal",
+    "name": "Personal",
+    "text": null,
+    "data": null
+  }
+]
+
+=== POST /api/public/signin ===
+{
+  "token": "local"
+}
+
+=== GET /api/user ===
+{
+  "id": 1,
+  "email": "local@pencil"
+}
+
+=== POST /api/pencil/book (expect 501) ===
+{"error":"Write operations are not supported by pencil_api_local"}
+HTTP 501
