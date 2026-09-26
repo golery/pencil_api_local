@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a stripped release binary for this machine into dist/.
-# Publishing is ./scripts/publish.sh
+# A push to main commits these binaries into releases/ via GitHub Actions.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -8,7 +8,6 @@ cd "$(dirname "$0")/.."
 if [[ -n "${1:-}" ]]; then
   echo "Unknown argument: $1" >&2
   echo "Usage: ./scripts/release.sh" >&2
-  echo "To copy the build into the releases repo and push it: ./scripts/publish.sh" >&2
   exit 1
 fi
 

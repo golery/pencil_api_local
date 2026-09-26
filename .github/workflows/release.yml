@@ -1,0 +1,72 @@
+name: Release
+
+# A push to main (including a merged pull request) builds Ubuntu and macOS
+# binaries and commits them to releases/.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'releases/**'
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: ./scripts/release.sh
+
+      - name: Stage binary
+        run: |
+          mkdir -p "$RUNNER_TEMP/upload"
+          shopt -s nullglob
+          binaries=(dist/pencil-api-local-*)
+          if [[ ${#binaries[@]} -eq 0 ]]; then
+            echo "No versioned binary in dist/" >&2
+            exit 1
+          fi
+          cp -a "${binaries[@]}" "$RUNNER_TEMP/upload/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os }}
+          path: ${{ runner.temp }}/upload/
+          if-no-files-found: error
+
+  publish:
+    name: Commit releases
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: ${{ runner.temp }}/artifacts
+          merge-multiple: true
+
+      - name: Commit binaries to releases/
+        run: ./scripts/commit-release.sh "${{ runner.temp }}/artifacts"

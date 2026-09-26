@@ -1,62 +1,59 @@
 #!/usr/bin/env bash
-# Build standalone binaries, copy them into the releases repo, then commit and push.
+# Fast-forward main to the current branch and push it.
+# The push starts .github/workflows/release.yml, which commits releases/.
 #   ./scripts/publish.sh
-# Override the checkout with RELEASES_REPO=/path/to/releases
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export PATH="${HOME}/.local/bin:${PATH}"
+LAND_WORKTREE=""
 
-RELEASES_REPO="${RELEASES_REPO:-/home/hly/repos/releases}"
-NAME="pencil-api-local"
+cleanup_land_worktree() {
+  if [[ -n "${LAND_WORKTREE}" ]]; then
+    git worktree remove --force "${LAND_WORKTREE}" >/dev/null 2>&1 || true
+    LAND_WORKTREE=""
+  fi
+}
 
-if [[ ! -d "${RELEASES_REPO}/.git" ]]; then
-  echo "Releases repo not found: ${RELEASES_REPO}" >&2
-  exit 1
-fi
+# Merge the current branch into main in another worktree so this checkout stays put.
+land_on_main() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "${branch}" == "HEAD" ]]; then
+    echo "Detached HEAD. Check out a branch before publishing." >&2
+    exit 1
+  fi
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Commit changes before publishing." >&2
+    exit 1
+  fi
 
-if ! command -v git-lfs >/dev/null 2>&1; then
-  echo "git-lfs is required. The releases repo stores these binaries with Git LFS." >&2
-  exit 1
-fi
+  git fetch origin main
 
-./scripts/release.sh
+  if [[ "${branch}" == "main" ]]; then
+    git merge --ff-only origin/main
+    git push origin main
+    return
+  fi
 
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-DEST="${RELEASES_REPO}/pencil_api_local"
-mkdir -p "${DEST}"
+  LAND_WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/pencil-api-local-main.XXXXXX")"
+  rmdir "${LAND_WORKTREE}"
+  git worktree add "${LAND_WORKTREE}" main
+  trap cleanup_land_worktree EXIT
 
-shopt -s nullglob
-artifacts=(dist/${NAME}-${VERSION}-*)
-shopt -u nullglob
-if [[ ${#artifacts[@]} -eq 0 ]]; then
-  echo "No release artifacts found for ${NAME} ${VERSION}" >&2
-  exit 1
-fi
+  if ! git -C "${LAND_WORKTREE}" merge --ff-only origin/main; then
+    echo "main has diverged from origin/main." >&2
+    exit 1
+  fi
+  if ! git -C "${LAND_WORKTREE}" merge --ff-only "${branch}"; then
+    echo "Cannot fast-forward main to ${branch}. Update ${branch} with main first." >&2
+    exit 1
+  fi
+  git -C "${LAND_WORKTREE}" push origin main
 
-cp -a "${artifacts[@]}" dist/SHA256SUMS "${DEST}/"
+  cleanup_land_worktree
+  trap - EXIT
+}
 
-attr="${RELEASES_REPO}/.gitattributes"
-lfs_line="pencil_api_local/${NAME}-* filter=lfs diff=lfs merge=lfs -text"
-if [[ ! -f "${attr}" ]] || ! grep -qxF "${lfs_line}" "${attr}"; then
-  echo "${lfs_line}" >> "${attr}"
-fi
-
-cd "${RELEASES_REPO}"
-git lfs install --local >/dev/null
-git add .gitattributes pencil_api_local
-
-if git diff --cached --quiet; then
-  echo "Releases repo already contains ${NAME} ${VERSION}"
-  exit 0
-fi
-
-git commit -m "$(cat <<EOF
-Publish ${NAME} ${VERSION}.
-
-EOF
-)"
-
-git push -u origin HEAD
-echo "Pushed ${NAME} ${VERSION} to ${RELEASES_REPO}"
+land_on_main
+echo "Pushed main. The release workflow will commit releases/."
